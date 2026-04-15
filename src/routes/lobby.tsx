@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
-import { Video, Mic, MicOff, VideoOff, Wifi, WifiOff, CheckCircle2, XCircle, ArrowRight, ChevronLeft, Volume2 } from "lucide-react";
+import { Video, Mic, MicOff, VideoOff, Wifi, WifiOff, CheckCircle2, XCircle, ArrowRight, ChevronLeft, Volume2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
