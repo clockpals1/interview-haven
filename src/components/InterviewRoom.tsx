@@ -62,6 +62,13 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
     }
   }, [remoteStream]);
 
+  // Attach screen share stream to video element
+  useEffect(() => {
+    if (screenVideoRef.current && screenStream) {
+      screenVideoRef.current.srcObject = screenStream;
+    }
+  }, [screenStream]);
+
   const sendMessage = () => {
     if (!message.trim()) return;
     setMessages((prev) => [...prev, { text: message, sender: "You", time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
