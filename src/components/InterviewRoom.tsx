@@ -27,6 +27,8 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
     localStream,
   });
 
+  const { screenStream, isSharing, toggleScreenShare } = useScreenShare();
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [message, setMessage] = useState("");
