@@ -34,6 +34,10 @@ export const Route = createRootRoute({
       { name: "author", content: "SereneHire" },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
+      { property: "og:title", content: "SereneHire — Calmer Interviews" },
+      { name: "twitter:title", content: "SereneHire — Calmer Interviews" },
+      { property: "og:description", content: "A calm, supportive interview platform with video, voice, and chat." },
+      { name: "twitter:description", content: "A calm, supportive interview platform with video, voice, and chat." },
     ],
     links: [
       {
