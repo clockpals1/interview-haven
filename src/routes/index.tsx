@@ -1,26 +1,38 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { Header } from "@/components/Header";
+import { HeroSection } from "@/components/HeroSection";
+import { ScheduleSection } from "@/components/ScheduleSection";
+import { JoinSection } from "@/components/JoinSection";
+import { FeaturesSection } from "@/components/FeaturesSection";
+import { Footer } from "@/components/Footer";
 
 export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "SereneHire — Calmer Interviews, Better Hires" },
+      { name: "description", content: "Schedule and join interviews in a calm, supportive environment. Video, voice, and chat — designed to help candidates show their best self." },
+      { property: "og:title", content: "SereneHire — Calmer Interviews, Better Hires" },
+      { property: "og:description", content: "Schedule and join interviews in a calm, supportive environment." },
+    ],
+  }),
   component: Index,
 });
 
-// IMPORTANT: Replace this placeholder. For sites with multiple pages (About, Services, Contact, etc.),
-// create separate route files (about.tsx, services.tsx, contact.tsx) — don't put all pages in this file.
-function PlaceholderIndex() {
+function Index() {
   return (
-    <div
-      className="flex min-h-screen items-center justify-center"
-      style={{ backgroundColor: "#fcfbf8" }}
-    >
-      <img
-        data-lovable-blank-page-placeholder="REMOVE_THIS"
-        src="https://cdn.gpteng.co/blank-app-v1.svg"
-        alt="Your app will live here!"
-      />
+    <div className="min-h-screen">
+      <Header />
+      <HeroSection />
+      <ScheduleSection />
+      <div className="mx-auto max-w-4xl px-6">
+        <hr className="border-border/50" />
+      </div>
+      <JoinSection />
+      <div className="mx-auto max-w-4xl px-6">
+        <hr className="border-border/50" />
+      </div>
+      <FeaturesSection />
+      <Footer />
     </div>
   );
-}
-
-function Index() {
-  return <PlaceholderIndex />;
 }
