@@ -147,9 +147,11 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
         {/* Video Area */}
         <div className="flex flex-1 flex-col">
           <div className="relative flex flex-1 items-center justify-center gap-4 p-4">
-            {/* Remote video (main view) */}
+            {/* Screen share or Remote video (main view) */}
             <div className="relative flex-1 h-full rounded-2xl bg-sage-dark/10 border border-border/30 overflow-hidden flex items-center justify-center">
-              {remoteStream ? (
+              {isSharing && screenStream ? (
+                <video ref={screenVideoRef} autoPlay playsInline className="h-full w-full object-contain bg-black" />
+              ) : remoteStream ? (
                 <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
               ) : (
                 <div className="text-center">
@@ -164,7 +166,12 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
                   </p>
                 </div>
               )}
-              {/* Subtle ambient pattern */}
+              {isSharing && (
+                <div className="absolute top-3 left-3 flex items-center gap-1.5 rounded-full bg-destructive/90 px-3 py-1">
+                  <Monitor className="h-3.5 w-3.5 text-destructive-foreground" />
+                  <span className="text-xs font-medium text-destructive-foreground">Sharing Screen</span>
+                </div>
+              )}
               <div className="pointer-events-none absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "radial-gradient(circle at 30% 50%, oklch(0.55 0.1 155), transparent 60%)" }} />
             </div>
 
@@ -207,7 +214,13 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
               {videoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
 
-            <Button variant="secondary" size="icon" className="h-12 w-12 rounded-full" title="Share screen">
+            <Button
+              variant={isSharing ? "destructive" : "secondary"}
+              size="icon"
+              className="h-12 w-12 rounded-full"
+              title={isSharing ? "Stop sharing" : "Share screen"}
+              onClick={toggleScreenShare}
+            >
               <Monitor className="h-5 w-5" />
             </Button>
 
