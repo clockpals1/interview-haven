@@ -1,39 +1,89 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Video, VideoOff, Mic, MicOff, MessageSquare, Phone,
   Settings, Monitor, Smile, Volume2, Eye, ChevronLeft,
-  Send, Maximize2, Minimize2, Hand, Leaf
+  Send, Maximize2, Minimize2, Hand, Leaf, Users, Wifi, WifiOff
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useMediaDevices } from "@/hooks/useMediaDevices";
+import { useWebRTC } from "@/hooks/useWebRTC";
 
 interface InterviewRoomProps {
   code?: string;
 }
 
 export function InterviewRoom({ code }: InterviewRoomProps) {
-  const [videoOn, setVideoOn] = useState(true);
-  const [micOn, setMicOn] = useState(true);
+  const {
+    localStream, videoEnabled, audioEnabled, error: mediaError,
+    startMedia, stopMedia, toggleVideo, toggleAudio,
+  } = useMediaDevices();
+
+  const { remoteStream, connectionState, participantCount } = useWebRTC({
+    roomCode: code || "demo",
+    localStream,
+  });
+
   const [chatOpen, setChatOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<{ text: string; sender: string; time: string }[]>([
-    { text: "Welcome! Take your time, there's no rush. 😊", sender: "Interviewer", time: "Now" },
+    { text: "Welcome! Take your time, there's no rush. 😊", sender: "System", time: "Now" },
   ]);
   const [ambientOn, setAmbientOn] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
 
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
+  // Start media on mount
+  useEffect(() => {
+    startMedia();
+    return () => stopMedia();
+  }, [startMedia, stopMedia]);
+
+  // Attach local stream to video element
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
+
+  // Attach remote stream to video element
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
   const sendMessage = () => {
     if (!message.trim()) return;
-    setMessages((prev) => [...prev, { text: message, sender: "You", time: "Now" }]);
+    setMessages((prev) => [...prev, { text: message, sender: "You", time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
     setMessage("");
   };
 
+  const connectionIcon = () => {
+    switch (connectionState) {
+      case "connected": return <Wifi className="h-3.5 w-3.5 text-primary" />;
+      case "connecting": return <Wifi className="h-3.5 w-3.5 text-accent animate-pulse" />;
+      default: return <WifiOff className="h-3.5 w-3.5 text-muted-foreground" />;
+    }
+  };
+
+  const connectionLabel = () => {
+    switch (connectionState) {
+      case "connected": return "Connected";
+      case "connecting": return "Connecting...";
+      case "failed": return "Connection failed";
+      default: return "Waiting for participant";
+    }
+  };
+
   return (
-    <div className={cn("flex h-screen flex-col bg-foreground/[0.03] transition-all duration-500", focusMode && "bg-background")}>
+    <div className={cn("flex h-screen flex-col transition-all duration-500", focusMode ? "bg-background" : "bg-foreground/[0.03]")}>
       {/* Top Bar */}
       <div className={cn("flex items-center justify-between border-b border-border/30 bg-card/90 px-4 py-2.5 backdrop-blur-sm transition-all", focusMode && "opacity-60 hover:opacity-100")}>
         <div className="flex items-center gap-3">
@@ -45,12 +95,22 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">Interview Room</p>
-            <p className="text-xs text-muted-foreground">{code || "SH-DEMO"} • Connected</p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{code || "SH-DEMO"}</span>
+              <span>•</span>
+              <span className="flex items-center gap-1">{connectionIcon()} {connectionLabel()}</span>
+            </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Calming indicator - a gentle breathing dot */}
+          {/* Participants */}
+          <div className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1">
+            <Users className="h-3.5 w-3.5 text-primary" />
+            <span className="text-xs font-medium text-primary">{participantCount}</span>
+          </div>
+
+          {/* Breathing indicator */}
           <div className="flex items-center gap-1.5 rounded-full bg-secondary px-3 py-1">
             <Leaf className="h-3.5 w-3.5 text-primary" />
             <span className="text-xs font-medium text-primary">Breathe</span>
@@ -77,30 +137,31 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
         {/* Video Area */}
         <div className="flex flex-1 flex-col">
           <div className="relative flex flex-1 items-center justify-center gap-4 p-4">
-            {/* Interviewer video - large */}
+            {/* Remote video (main view) */}
             <div className="relative flex-1 h-full rounded-2xl bg-sage-dark/10 border border-border/30 overflow-hidden flex items-center justify-center">
-              <div className="text-center">
-                <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-secondary">
-                  <span className="text-2xl font-bold text-primary">JD</span>
+              {remoteStream ? (
+                <video ref={remoteVideoRef} autoPlay playsInline className="h-full w-full object-cover" />
+              ) : (
+                <div className="text-center">
+                  <div className="mx-auto mb-3 flex h-20 w-20 items-center justify-center rounded-full bg-secondary">
+                    <Users className="h-8 w-8 text-primary/50" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground">
+                    {connectionState === "connecting" ? "Connecting..." : "Waiting for participant to join"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Share the code <span className="font-mono font-bold text-primary">{code || "SH-DEMO"}</span> to invite
+                  </p>
                 </div>
-                <p className="text-sm font-medium text-foreground">Jane Doe</p>
-                <p className="text-xs text-muted-foreground">Interviewer</p>
-              </div>
+              )}
               {/* Subtle ambient pattern */}
               <div className="pointer-events-none absolute inset-0 opacity-[0.03]" style={{ backgroundImage: "radial-gradient(circle at 30% 50%, oklch(0.55 0.1 155), transparent 60%)" }} />
             </div>
 
-            {/* Self video - picture-in-picture */}
-            <div className={cn("absolute bottom-6 right-6 h-36 w-48 rounded-xl border-2 border-card shadow-lg overflow-hidden transition-all", videoOn ? "bg-sage-light/20" : "bg-muted")}>
-              {videoOn ? (
-                <div className="flex h-full items-center justify-center">
-                  <div className="text-center">
-                    <div className="mx-auto mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-accent/20">
-                      <span className="text-sm font-bold text-accent">You</span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">Camera on</p>
-                  </div>
-                </div>
+            {/* Local video (picture-in-picture) */}
+            <div className={cn("absolute bottom-6 right-6 h-36 w-48 rounded-xl border-2 border-card shadow-lg overflow-hidden transition-all", videoEnabled ? "bg-sage-light/20" : "bg-muted")}>
+              {videoEnabled && localStream ? (
+                <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover -scale-x-100" />
               ) : (
                 <div className="flex h-full items-center justify-center">
                   <VideoOff className="h-5 w-5 text-muted-foreground" />
@@ -109,24 +170,31 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
             </div>
           </div>
 
+          {/* Media error */}
+          {mediaError && (
+            <div className="mx-4 mb-2 rounded-xl bg-destructive/10 px-4 py-2 text-center text-sm text-destructive">
+              {mediaError}
+            </div>
+          )}
+
           {/* Bottom Controls */}
           <div className="flex items-center justify-center gap-3 border-t border-border/30 bg-card/80 px-4 py-3 backdrop-blur-sm">
             <Button
-              variant={micOn ? "secondary" : "destructive"}
+              variant={audioEnabled ? "secondary" : "destructive"}
               size="icon"
               className="h-12 w-12 rounded-full"
-              onClick={() => setMicOn(!micOn)}
+              onClick={toggleAudio}
             >
-              {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+              {audioEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
             </Button>
 
             <Button
-              variant={videoOn ? "secondary" : "destructive"}
+              variant={videoEnabled ? "secondary" : "destructive"}
               size="icon"
               className="h-12 w-12 rounded-full"
-              onClick={() => setVideoOn(!videoOn)}
+              onClick={toggleVideo}
             >
-              {videoOn ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
+              {videoEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
             </Button>
 
             <Button variant="secondary" size="icon" className="h-12 w-12 rounded-full" title="Share screen">
@@ -158,9 +226,11 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
 
             <div className="mx-2 h-8 w-px bg-border/50" />
 
-            <Button variant="destructive" size="icon" className="h-12 w-12 rounded-full" title="Leave interview">
-              <Phone className="h-5 w-5 rotate-[135deg]" />
-            </Button>
+            <Link to="/">
+              <Button variant="destructive" size="icon" className="h-12 w-12 rounded-full" title="Leave interview">
+                <Phone className="h-5 w-5 rotate-[135deg]" />
+              </Button>
+            </Link>
           </div>
         </div>
 
