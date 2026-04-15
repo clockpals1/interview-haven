@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { useMediaDevices } from "@/hooks/useMediaDevices";
 import { useWebRTC } from "@/hooks/useWebRTC";
+import { useScreenShare } from "@/hooks/useScreenShare";
 
 interface InterviewRoomProps {
   code?: string;
