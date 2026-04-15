@@ -23,6 +23,9 @@ export function Header() {
           <a href="#features" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
             Features
           </a>
+          <Link to="/admin/login" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
+            Admin
+          </Link>
         </nav>
       </div>
     </header>

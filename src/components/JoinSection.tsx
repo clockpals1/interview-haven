@@ -38,7 +38,7 @@ export function JoinSection() {
       return;
     }
 
-    navigate({ to: "/interview", search: { code: data.confirmation_code } });
+    navigate({ to: "/lobby", search: { code: data.confirmation_code } });
   };
 
   return (
