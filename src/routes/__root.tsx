@@ -1,7 +1,5 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 
-import appCss from "../styles.css?url";
-
 function NotFoundComponent() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -38,12 +36,6 @@ export const Route = createRootRoute({
       { name: "twitter:title", content: "SereneHire — Calmer Interviews" },
       { property: "og:description", content: "A calm, supportive interview platform with video, voice, and chat." },
       { name: "twitter:description", content: "A calm, supportive interview platform with video, voice, and chat." },
-    ],
-    links: [
-      {
-        rel: "stylesheet",
-        href: appCss,
-      },
     ],
   }),
   shellComponent: RootShell,
