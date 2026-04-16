@@ -22,7 +22,9 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const presenceKeyRef = useRef<string>(crypto.randomUUID());
   const isInitiatorRef = useRef(false);
+  const hasStartedCallRef = useRef(false);
   const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
 
   const createPeerConnection = useCallback(() => {
@@ -90,8 +92,9 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
 
   const startCall = useCallback(async () => {
     const pc = pcRef.current;
-    if (!pc || !channelRef.current) return;
+    if (!pc || !channelRef.current || hasStartedCallRef.current) return;
 
+    hasStartedCallRef.current = true;
     isInitiatorRef.current = true;
     setConnectionState("connecting");
 
@@ -108,17 +111,23 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
   useEffect(() => {
     if (!roomCode) return;
 
+    isInitiatorRef.current = false;
+    hasStartedCallRef.current = false;
+    candidateQueueRef.current = [];
+    presenceKeyRef.current = crypto.randomUUID();
+
     const pc = createPeerConnection();
 
     const channel = supabase.channel(`interview-${roomCode}`, {
-      config: { presence: { key: crypto.randomUUID() } },
+      config: { presence: { key: presenceKeyRef.current } },
     });
 
     channelRef.current = channel;
 
     channel
       .on("broadcast", { event: "offer" }, async ({ payload }) => {
-        if (isInitiatorRef.current) return;
+        hasStartedCallRef.current = true;
+        if (pc.signalingState !== "stable") return;
         setConnectionState("connecting");
 
         await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
@@ -151,11 +160,13 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
       })
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        const count = Object.keys(state).length;
+        const participantKeys = Object.keys(state).sort();
+        const count = participantKeys.length;
         setParticipantCount(count);
 
-        // If 2 participants and we joined second, start the call
-        if (count >= 2 && !isInitiatorRef.current && pc.connectionState === "new") {
+        const shouldInitiate = participantKeys[0] === presenceKeyRef.current;
+
+        if (count >= 2 && shouldInitiate && pc.signalingState === "stable") {
           startCall();
         }
       })
@@ -171,6 +182,9 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
       pc.close();
       pcRef.current = null;
       channelRef.current = null;
+      isInitiatorRef.current = false;
+      hasStartedCallRef.current = false;
+      candidateQueueRef.current = [];
       setRemoteStream(null);
       setConnectionState("disconnected");
     };
