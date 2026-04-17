@@ -1,12 +1,23 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
+// Public STUN + free TURN relay (OpenRelay by Metered) for NAT/firewall traversal
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp",
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject",
+    },
   ],
+  iceCandidatePoolSize: 10,
 };
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "failed";
