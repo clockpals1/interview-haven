@@ -42,17 +42,17 @@ export function JoinSection() {
   };
 
   return (
-    <section id="join" className="px-6 py-20">
+    <section id="join" className="px-4 py-16 sm:px-6 sm:py-20">
       <div className="mx-auto max-w-lg">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-terracotta-light/50">
             <KeyRound className="h-6 w-6 text-accent" />
           </div>
           <h2 className="mb-2 text-2xl font-bold text-foreground">Already Scheduled?</h2>
-          <p className="text-muted-foreground">Enter your email and confirmation code to join.</p>
+          <p className="text-sm text-muted-foreground sm:text-base">Enter your email and confirmation code to join.</p>
         </div>
 
-        <form onSubmit={handleJoin} className="space-y-4 rounded-2xl bg-card p-6 shadow-md border border-border/50">
+        <form onSubmit={handleJoin} className="space-y-4 rounded-2xl bg-card p-5 shadow-md border border-border/50 sm:p-6">
           {error && (
             <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive text-center">{error}</div>
           )}

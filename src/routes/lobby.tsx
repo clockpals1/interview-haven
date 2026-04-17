@@ -138,33 +138,33 @@ function LobbyPage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
+    <div className="relative flex min-h-[100dvh] flex-col items-center justify-center px-4 py-10 sm:px-6 sm:py-12">
       {/* Background */}
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 right-1/3 h-64 w-64 rounded-full bg-sage-light/30 blur-3xl animate-breathe" />
-        <div className="absolute bottom-1/4 left-1/3 h-48 w-48 rounded-full bg-terracotta-light/20 blur-3xl animate-breathe" style={{ animationDelay: "2s" }} />
+        <div className="absolute right-1/3 top-1/4 h-56 w-56 rounded-full bg-sage-light/30 blur-3xl animate-breathe sm:h-64 sm:w-64" />
+        <div className="absolute bottom-1/4 left-1/3 h-40 w-40 rounded-full bg-terracotta-light/20 blur-3xl animate-breathe sm:h-48 sm:w-48" style={{ animationDelay: "2s" }} />
       </div>
 
       <div className="relative w-full max-w-2xl">
-        <a href="/" className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+        <a href="/" className="mb-6 inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
           <ChevronLeft className="h-4 w-4" /> Back to home
         </a>
 
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-foreground">Pre-Interview Check</h1>
-          <p className="mt-2 text-muted-foreground">
+        <div className="mb-6 text-center sm:mb-8">
+          <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Pre-Interview Check</h1>
+          <p className="mt-2 text-sm text-muted-foreground sm:text-base">
             Let's make sure everything's working. Take a moment to breathe — you've got this. 🌿
           </p>
         </div>
 
         {/* Video Preview */}
-        <div className="mb-6 overflow-hidden rounded-2xl bg-foreground/5 border border-border/50 aspect-video flex items-center justify-center relative">
+        <div className="relative mb-6 flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-border/50 bg-foreground/5">
           {videoEnabled ? (
             <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover -scale-x-100" />
           ) : (
             <div className="text-center">
-              <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-secondary">
-                <VideoOff className="h-8 w-8 text-muted-foreground" />
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-secondary sm:h-16 sm:w-16">
+                <VideoOff className="h-7 w-7 text-muted-foreground sm:h-8 sm:w-8" />
               </div>
               <p className="text-sm text-muted-foreground">Camera is off</p>
             </div>
@@ -172,9 +172,9 @@ function LobbyPage() {
 
           {/* Audio level bar */}
           {micEnabled && (
-            <div className="absolute bottom-4 left-4 flex items-center gap-2 rounded-full bg-card/90 px-3 py-1.5 backdrop-blur-sm">
+            <div className="absolute bottom-3 left-3 flex items-center gap-2 rounded-full bg-card/90 px-2.5 py-1.5 backdrop-blur-sm sm:bottom-4 sm:left-4 sm:px-3">
               <Volume2 className="h-3.5 w-3.5 text-primary" />
-              <div className="h-1.5 w-20 rounded-full bg-muted overflow-hidden">
+              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted sm:w-20">
                 <div className="h-full rounded-full bg-primary transition-all duration-75" style={{ width: `${audioLevel}%` }} />
               </div>
             </div>
@@ -182,7 +182,7 @@ function LobbyPage() {
 
           {/* Camera/Mic toggles */}
           {cameraOk !== null && (
-            <div className="absolute bottom-4 right-4 flex gap-2">
+            <div className="absolute bottom-3 right-3 flex gap-2 sm:bottom-4 sm:right-4">
               <Button variant={videoEnabled ? "secondary" : "destructive"} size="icon" className="h-9 w-9 rounded-full" onClick={toggleVideo}>
                 {videoEnabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
               </Button>
@@ -194,13 +194,13 @@ function LobbyPage() {
         </div>
 
         {/* Status Checks */}
-        <div className="mb-6 grid grid-cols-3 gap-3">
+        <div className="mb-6 grid grid-cols-3 gap-2 sm:gap-3">
           {[
             { label: "Camera", ok: cameraOk, icon: Video },
             { label: "Microphone", ok: micOk, icon: Mic },
             { label: "Connection", ok: connectionOk, icon: Wifi },
           ].map((check) => (
-            <div key={check.label} className={cn("rounded-xl p-4 text-center border transition-all", check.ok === true ? "bg-primary/5 border-primary/20" : check.ok === false ? "bg-destructive/5 border-destructive/20" : "bg-card border-border/50")}>
+            <div key={check.label} className={cn("rounded-xl border p-3 text-center transition-all sm:p-4", check.ok === true ? "bg-primary/5 border-primary/20" : check.ok === false ? "bg-destructive/5 border-destructive/20" : "bg-card border-border/50")}>
               <div className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-full">
                 {check.ok === true ? (
                   <CheckCircle2 className="h-5 w-5 text-primary" />
@@ -210,19 +210,19 @@ function LobbyPage() {
                   <check.icon className="h-5 w-5 text-muted-foreground" />
                 )}
               </div>
-              <p className="text-sm font-medium text-foreground">{check.label}</p>
-              <p className="text-xs text-muted-foreground">
-                {check.ok === true ? "Ready" : check.ok === false ? "Issue detected" : "Not tested"}
+              <p className="text-xs font-medium text-foreground sm:text-sm">{check.label}</p>
+              <p className="text-[10px] text-muted-foreground sm:text-xs">
+                {check.ok === true ? "Ready" : check.ok === false ? "Issue" : "Not tested"}
               </p>
             </div>
           ))}
         </div>
 
         {/* Actions */}
-        <div className="flex gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row">
           {cameraOk === null ? (
             <Button variant="hero" size="lg" className="flex-1" onClick={testDevices} disabled={testing}>
-              {testing ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Testing...</> : "Test Camera & Microphone"}
+              {testing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Testing...</> : "Test Camera & Microphone"}
             </Button>
           ) : (
             <>

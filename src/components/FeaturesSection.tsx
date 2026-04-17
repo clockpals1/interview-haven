@@ -11,15 +11,15 @@ const features = [
 
 export function FeaturesSection() {
   return (
-    <section id="features" className="px-6 py-20">
+    <section id="features" className="px-4 py-16 sm:px-6 sm:py-20">
       <div className="mx-auto max-w-5xl">
-        <div className="mb-12 text-center">
-          <h2 className="mb-3 text-3xl font-bold text-foreground">Built for Comfort</h2>
-          <p className="mx-auto max-w-lg text-muted-foreground">
+        <div className="mb-10 text-center sm:mb-12">
+          <h2 className="mb-3 text-2xl font-bold text-foreground sm:text-3xl">Built for Comfort</h2>
+          <p className="mx-auto max-w-lg text-sm text-muted-foreground sm:text-base">
             Every feature is designed to help you feel confident and present during your interview.
           </p>
         </div>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 sm:gap-6 lg:grid-cols-3">
           {features.map((f) => (
             <div key={f.title} className="group rounded-2xl bg-card p-6 shadow-sm border border-border/50 transition-all duration-300 hover:shadow-md hover:border-primary/20">
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-secondary transition-colors group-hover:bg-primary/10">

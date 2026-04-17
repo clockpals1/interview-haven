@@ -87,16 +87,16 @@ export function ScheduleSection() {
   }
 
   return (
-    <section id="schedule" className="px-6 py-20">
+    <section id="schedule" className="px-4 py-16 sm:px-6 sm:py-20">
       <div className="mx-auto max-w-2xl">
-        <div className="mb-10 text-center">
-          <h2 className="mb-3 text-3xl font-bold text-foreground">Schedule Your Interview</h2>
-          <p className="text-muted-foreground">
+        <div className="mb-8 text-center sm:mb-10">
+          <h2 className="mb-3 text-2xl font-bold text-foreground sm:text-3xl">Schedule Your Interview</h2>
+          <p className="text-sm text-muted-foreground sm:text-base">
             Choose a time that works for you. Take a deep breath — we've got you.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6 rounded-3xl bg-card p-8 shadow-lg border border-border/50">
+        <form onSubmit={handleSubmit} className="space-y-6 rounded-3xl bg-card p-5 shadow-lg border border-border/50 sm:p-8">
           {error && (
             <div className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive text-center">{error}</div>
           )}
