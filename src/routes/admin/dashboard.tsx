@@ -109,38 +109,41 @@ function AdminDashboard() {
     <div className="min-h-screen">
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-border/50 bg-card/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary shrink-0">
               <Video className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-bold text-foreground">SereneHire <span className="text-muted-foreground font-normal text-sm">Admin</span></span>
+            <span className="truncate font-bold text-foreground">
+              SereneHire <span className="hidden text-sm font-normal text-muted-foreground sm:inline">Admin</span>
+            </span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground">{adminEmail}</span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="hidden max-w-[180px] truncate text-xs text-muted-foreground sm:inline">{adminEmail}</span>
             <Button variant="ghost" size="sm" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" /> Logout
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Logout</span>
             </Button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
         {/* Stats */}
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:mb-8 sm:grid-cols-3 sm:gap-4">
           {[
             { label: "Total Interviews", value: interviews.length, icon: Calendar },
             { label: "Upcoming", value: interviews.filter((i) => i.status === "scheduled").length, icon: Clock },
             { label: "With Accessibility Needs", value: interviews.filter((i) => i.accessibility_needs).length, icon: Accessibility },
           ].map((stat) => (
-            <div key={stat.label} className="rounded-2xl bg-card p-5 shadow-sm border border-border/50">
+            <div key={stat.label} className="rounded-2xl bg-card p-4 shadow-sm border border-border/50 sm:p-5">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-secondary">
                   <stat.icon className="h-5 w-5 text-primary" />
                 </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-                  <p className="text-xs text-muted-foreground">{stat.label}</p>
+                <div className="min-w-0">
+                  <p className="text-xl font-bold text-foreground sm:text-2xl">{stat.value}</p>
+                  <p className="truncate text-xs text-muted-foreground">{stat.label}</p>
                 </div>
               </div>
             </div>
@@ -148,12 +151,12 @@ function AdminDashboard() {
         </div>
 
         {/* Search & Refresh */}
-        <div className="mb-6 flex items-center gap-3">
+        <div className="mb-6 flex items-center gap-2 sm:gap-3">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search by name, email, or code..." value={search} onChange={(e) => setSearch(e.target.value)} className="rounded-xl h-10 pl-10" />
           </div>
-          <Button variant="outline" size="icon" onClick={fetchInterviews} className="rounded-xl h-10 w-10">
+          <Button variant="outline" size="icon" onClick={fetchInterviews} className="rounded-xl h-10 w-10 shrink-0">
             <RefreshCw className="h-4 w-4" />
           </Button>
         </div>
@@ -164,44 +167,44 @@ function AdminDashboard() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="rounded-2xl bg-card p-12 text-center border border-border/50">
+          <div className="rounded-2xl bg-card p-8 text-center border border-border/50 sm:p-12">
             <Calendar className="mx-auto mb-3 h-10 w-10 text-muted-foreground/50" />
             <p className="font-medium text-foreground">No interviews found</p>
-            <p className="text-sm text-muted-foreground mt-1">
+            <p className="mt-1 text-sm text-muted-foreground">
               {search ? "Try a different search term" : "Interviews will appear here once candidates schedule them"}
             </p>
           </div>
         ) : (
           <div className="space-y-3">
             {filtered.map((interview) => (
-              <div key={interview.id} className="rounded-2xl bg-card p-5 shadow-sm border border-border/50 transition-all hover:shadow-md">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <div className="flex items-center gap-2">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-semibold text-foreground">{interview.candidate_name}</span>
+              <div key={interview.id} className="rounded-2xl bg-card p-4 shadow-sm border border-border/50 transition-all hover:shadow-md sm:p-5">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate font-semibold text-foreground">{interview.candidate_name}</span>
                       </div>
                       <Badge className={statusColor(interview.status)}>{interview.status}</Badge>
                       <span className="font-mono text-xs text-muted-foreground">{interview.confirmation_code}</span>
                     </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground flex-wrap">
-                      <span className="flex items-center gap-1"><Mail className="h-3.5 w-3.5" /> {interview.candidate_email}</span>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground sm:text-sm">
+                      <span className="flex min-w-0 items-center gap-1"><Mail className="h-3.5 w-3.5 shrink-0" /> <span className="truncate">{interview.candidate_email}</span></span>
                       <span className="flex items-center gap-1"><Calendar className="h-3.5 w-3.5" /> {format(new Date(interview.interview_date), "MMM d, yyyy")}</span>
                       <span className="flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {interview.interview_time}</span>
                     </div>
                     {interview.accessibility_needs && (
                       <div className="flex items-start gap-1.5 text-sm">
-                        <Accessibility className="h-3.5 w-3.5 mt-0.5 text-primary shrink-0" />
+                        <Accessibility className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                         <span className="text-muted-foreground">{interview.accessibility_needs}</span>
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button variant="accent" size="sm" onClick={() => navigate({ to: "/interview", search: { code: interview.confirmation_code } })}>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button variant="accent" size="sm" className="flex-1 sm:flex-none" onClick={() => navigate({ to: "/interview", search: { code: interview.confirmation_code } })}>
                       Join
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => handleDelete(interview.id)}>
+                    <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:text-destructive" onClick={() => handleDelete(interview.id)}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
