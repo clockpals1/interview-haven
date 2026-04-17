@@ -5,6 +5,7 @@ const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
   ],
 };
 
@@ -22,29 +23,112 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const presenceKeyRef = useRef<string>(crypto.randomUUID());
+  const presenceKeyRef = useRef<string>("");
   const isInitiatorRef = useRef(false);
-  const hasStartedCallRef = useRef(false);
+  const hasNegotiatedRef = useRef(false);
   const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const subscribedRef = useRef(false);
 
-  const createPeerConnection = useCallback(() => {
+  // Keep latest localStream in a ref so handlers see fresh value
+  useEffect(() => {
+    localStreamRef.current = localStream;
+
+    const pc = pcRef.current;
+    if (!pc || !localStream) return;
+
+    const senders = pc.getSenders();
+    localStream.getTracks().forEach((track) => {
+      const sender = senders.find((s) => s.track?.kind === track.kind);
+      if (sender) {
+        sender.replaceTrack(track);
+      } else {
+        pc.addTrack(track, localStream);
+      }
+    });
+  }, [localStream]);
+
+  const sendSignal = useCallback((event: string, payload: Record<string, unknown>) => {
+    const ch = channelRef.current;
+    if (!ch) return;
+    ch.send({ type: "broadcast", event, payload });
+  }, []);
+
+  const attachLocalTracks = useCallback((pc: RTCPeerConnection) => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const existingKinds = new Set(pc.getSenders().map((s) => s.track?.kind).filter(Boolean));
+    stream.getTracks().forEach((track) => {
+      if (!existingKinds.has(track.kind)) {
+        pc.addTrack(track, stream);
+      }
+    });
+  }, []);
+
+  const processCandidateQueue = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc || !pc.remoteDescription) return;
+    while (candidateQueueRef.current.length > 0) {
+      const candidate = candidateQueueRef.current.shift()!;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn("Failed to add ICE candidate:", e);
+      }
+    }
+  }, []);
+
+  const startNegotiation = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc || hasNegotiatedRef.current) return;
+    if (pc.signalingState !== "stable") return;
+
+    hasNegotiatedRef.current = true;
+    isInitiatorRef.current = true;
+    setConnectionState("connecting");
+
+    attachLocalTracks(pc);
+
+    try {
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await pc.setLocalDescription(offer);
+      sendSignal("offer", { sdp: offer, from: presenceKeyRef.current });
+    } catch (e) {
+      console.error("Failed to create offer:", e);
+      hasNegotiatedRef.current = false;
+      isInitiatorRef.current = false;
+    }
+  }, [attachLocalTracks, sendSignal]);
+
+  // Main effect: set up channel + peer connection (only depends on roomCode)
+  useEffect(() => {
+    if (!roomCode) return;
+
+    // Reset state
+    presenceKeyRef.current = crypto.randomUUID();
+    isInitiatorRef.current = false;
+    hasNegotiatedRef.current = false;
+    candidateQueueRef.current = [];
+    subscribedRef.current = false;
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
+    pcRef.current = pc;
 
     pc.onicecandidate = (event) => {
-      if (event.candidate && channelRef.current) {
-        channelRef.current.send({
-          type: "broadcast",
-          event: "ice-candidate",
-          payload: { candidate: event.candidate.toJSON() },
+      if (event.candidate) {
+        sendSignal("ice-candidate", {
+          candidate: event.candidate.toJSON(),
+          from: presenceKeyRef.current,
         });
       }
     };
 
     pc.ontrack = (event) => {
       const [stream] = event.streams;
-      if (stream) {
-        setRemoteStream(stream);
-      }
+      if (stream) setRemoteStream(stream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -66,91 +150,58 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
       }
     };
 
-    // Add local tracks
-    if (localStream) {
-      localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, localStream);
-      });
-    }
-
-    pcRef.current = pc;
-    return pc;
-  }, [localStream]);
-
-  const processCandidateQueue = useCallback(async () => {
-    const pc = pcRef.current;
-    if (!pc || !pc.remoteDescription) return;
-    while (candidateQueueRef.current.length > 0) {
-      const candidate = candidateQueueRef.current.shift()!;
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.warn("Failed to add ICE candidate:", e);
-      }
-    }
-  }, []);
-
-  const startCall = useCallback(async () => {
-    const pc = pcRef.current;
-    if (!pc || !channelRef.current || hasStartedCallRef.current) return;
-
-    hasStartedCallRef.current = true;
-    isInitiatorRef.current = true;
-    setConnectionState("connecting");
-
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    channelRef.current.send({
-      type: "broadcast",
-      event: "offer",
-      payload: { sdp: offer },
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!roomCode) return;
-
-    isInitiatorRef.current = false;
-    hasStartedCallRef.current = false;
-    candidateQueueRef.current = [];
-    presenceKeyRef.current = crypto.randomUUID();
-
-    const pc = createPeerConnection();
+    // Attach any tracks we already have
+    attachLocalTracks(pc);
 
     const channel = supabase.channel(`interview-${roomCode}`, {
       config: { presence: { key: presenceKeyRef.current } },
     });
-
     channelRef.current = channel;
 
     channel
       .on("broadcast", { event: "offer" }, async ({ payload }) => {
-        hasStartedCallRef.current = true;
-        if (pc.signalingState !== "stable") return;
+        const currentPc = pcRef.current;
+        if (!currentPc) return;
+        if (payload.from === presenceKeyRef.current) return; // ignore own
+        if (isInitiatorRef.current) return; // initiator shouldn't accept offers
+        if (currentPc.signalingState !== "stable") return;
+
+        hasNegotiatedRef.current = true;
         setConnectionState("connecting");
 
-        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        await processCandidateQueue();
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        channel.send({
-          type: "broadcast",
-          event: "answer",
-          payload: { sdp: answer },
-        });
+        try {
+          attachLocalTracks(currentPc);
+          await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          await processCandidateQueue();
+          const answer = await currentPc.createAnswer();
+          await currentPc.setLocalDescription(answer);
+          sendSignal("answer", { sdp: answer, from: presenceKeyRef.current });
+        } catch (e) {
+          console.error("Failed to handle offer:", e);
+        }
       })
       .on("broadcast", { event: "answer" }, async ({ payload }) => {
+        const currentPc = pcRef.current;
+        if (!currentPc) return;
+        if (payload.from === presenceKeyRef.current) return;
         if (!isInitiatorRef.current) return;
-        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        await processCandidateQueue();
+        if (currentPc.signalingState !== "have-local-offer") return;
+
+        try {
+          await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          await processCandidateQueue();
+        } catch (e) {
+          console.error("Failed to handle answer:", e);
+        }
       })
       .on("broadcast", { event: "ice-candidate" }, async ({ payload }) => {
-        if (pc.remoteDescription) {
+        const currentPc = pcRef.current;
+        if (!currentPc) return;
+        if (payload.from === presenceKeyRef.current) return;
+
+        if (currentPc.remoteDescription) {
           try {
-            await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
+            await currentPc.addIceCandidate(new RTCIceCandidate(payload.candidate));
           } catch (e) {
             console.warn("Failed to add ICE candidate:", e);
           }
@@ -158,53 +209,68 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
           candidateQueueRef.current.push(payload.candidate);
         }
       })
+      .on("broadcast", { event: "request-offer" }, () => {
+        // A new peer asks the existing one to (re)send an offer
+        if (!isInitiatorRef.current && !hasNegotiatedRef.current) {
+          // become initiator since we were here first
+          isInitiatorRef.current = true;
+        }
+        hasNegotiatedRef.current = false;
+        startNegotiation();
+      })
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        const participantKeys = Object.keys(state).sort();
-        const count = participantKeys.length;
-        setParticipantCount(count);
+        const keys = Object.keys(state).sort();
+        setParticipantCount(keys.length);
 
-        const shouldInitiate = participantKeys[0] === presenceKeyRef.current;
-
-        if (count >= 2 && shouldInitiate && pc.signalingState === "stable") {
-          startCall();
+        if (keys.length >= 2) {
+          // Deterministic initiator: smallest key starts
+          const shouldInitiate = keys[0] === presenceKeyRef.current;
+          if (shouldInitiate && !hasNegotiatedRef.current) {
+            startNegotiation();
+          }
+        }
+      })
+      .on("presence", { event: "join" }, ({ key }) => {
+        // When someone new joins after us, ask them to trigger negotiation
+        // (only relevant if we're the initiator/first one)
+        if (key !== presenceKeyRef.current) {
+          const state = channel.presenceState();
+          const keys = Object.keys(state).sort();
+          if (keys.length >= 2 && keys[0] === presenceKeyRef.current && !hasNegotiatedRef.current) {
+            startNegotiation();
+          }
         }
       })
       .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") {
+        if (status === "SUBSCRIBED" && !subscribedRef.current) {
+          subscribedRef.current = true;
           await channel.track({ joined_at: new Date().toISOString() });
         }
       });
 
     return () => {
-      channel.untrack();
-      channel.unsubscribe();
-      pc.close();
+      try {
+        channel.untrack();
+      } catch {}
+      try {
+        supabase.removeChannel(channel);
+      } catch {}
+      try {
+        pc.close();
+      } catch {}
       pcRef.current = null;
       channelRef.current = null;
       isInitiatorRef.current = false;
-      hasStartedCallRef.current = false;
+      hasNegotiatedRef.current = false;
       candidateQueueRef.current = [];
+      subscribedRef.current = false;
       setRemoteStream(null);
       setConnectionState("disconnected");
+      setParticipantCount(1);
     };
-  }, [roomCode, createPeerConnection, startCall, processCandidateQueue]);
-
-  // Update tracks when localStream changes
-  useEffect(() => {
-    const pc = pcRef.current;
-    if (!pc || !localStream) return;
-
-    const senders = pc.getSenders();
-    localStream.getTracks().forEach((track) => {
-      const sender = senders.find((s) => s.track?.kind === track.kind);
-      if (sender) {
-        sender.replaceTrack(track);
-      } else {
-        pc.addTrack(track, localStream);
-      }
-    });
-  }, [localStream]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomCode]);
 
   return { remoteStream, connectionState, participantCount };
 }
