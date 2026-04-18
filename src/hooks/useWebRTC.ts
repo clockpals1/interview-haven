@@ -153,36 +153,12 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }:
     }
   }, [attachLocalTracks, hasLocalMedia, processCandidateQueue, sendSignal]);
 
-  // Keep latest localStream in a ref so handlers see fresh value
+  // Keep latest local media in sync with the peer connection and only negotiate once tracks exist
   useEffect(() => {
     localStreamRef.current = localStream;
 
     const pc = pcRef.current;
     if (!pc || !localStream) return;
-
-    const senders = pc.getSenders();
-    localStream.getTracks().forEach((track) => {
-      const sender = senders.find((s) => s.track?.kind === track.kind);
-      if (sender) {
-        sender.replaceTrack(track);
-      } else {
-        pc.addTrack(track, localStream);
-      }
-    });
-
-    const channel = channelRef.current;
-    if (!channel || hasNegotiatedRef.current || pc.connectionState === "connected") return;
-
-    const keys = Object.keys(channel.presenceState()).sort();
-    if (keys.length < 2) return;
-
-    const shouldInitiate = keys[0] === presenceKeyRef.current;
-    if (shouldInitiate) {
-      void startNegotiation();
-    } else {
-      sendSignal("request-offer", { from: presenceKeyRef.current });
-    }
-    if (!pc) return;
 
     attachLocalTracks(pc);
 
@@ -192,7 +168,7 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }:
     }
 
     const channel = channelRef.current;
-    if (!channel || !hasLocalMedia() || pc.connectionState === "connected") return;
+    if (!channel || !hasLocalMedia()) return;
 
     const keys = Object.keys(channel.presenceState()).sort();
     if (keys.length < 2) return;
