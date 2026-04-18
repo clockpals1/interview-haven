@@ -21,13 +21,13 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
     localStream, videoEnabled, audioEnabled, error: mediaError,
     startMedia, stopMedia, toggleVideo, toggleAudio,
   } = useMediaDevices();
+  const { screenStream, isSharing, toggleScreenShare } = useScreenShare();
 
   const { remoteStream, connectionState, participantCount } = useWebRTC({
     roomCode: code || "demo",
     localStream,
+    preferredVideoTrack: screenStream?.getVideoTracks()[0] ?? null,
   });
-
-  const { screenStream, isSharing, toggleScreenShare } = useScreenShare();
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -52,6 +52,7 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream;
+      void localVideoRef.current.play().catch(() => {});
     }
   }, [localStream]);
 
@@ -59,6 +60,7 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream;
+      void remoteVideoRef.current.play().catch(() => {});
     }
   }, [remoteStream]);
 
@@ -66,6 +68,7 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
   useEffect(() => {
     if (screenVideoRef.current && screenStream) {
       screenVideoRef.current.srcObject = screenStream;
+      void screenVideoRef.current.play().catch(() => {});
     }
   }, [screenStream]);
 
