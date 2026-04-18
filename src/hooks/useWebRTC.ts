@@ -12,6 +12,7 @@ const ICE_SERVERS: RTCConfiguration = {
         "turn:openrelay.metered.ca:80",
         "turn:openrelay.metered.ca:443",
         "turn:openrelay.metered.ca:443?transport=tcp",
+        "turns:openrelay.metered.ca:443?transport=tcp",
       ],
       username: "openrelayproject",
       credential: "openrelayproject",
@@ -40,24 +41,6 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
   const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const localStreamRef = useRef<MediaStream | null>(null);
   const subscribedRef = useRef(false);
-
-  // Keep latest localStream in a ref so handlers see fresh value
-  useEffect(() => {
-    localStreamRef.current = localStream;
-
-    const pc = pcRef.current;
-    if (!pc || !localStream) return;
-
-    const senders = pc.getSenders();
-    localStream.getTracks().forEach((track) => {
-      const sender = senders.find((s) => s.track?.kind === track.kind);
-      if (sender) {
-        sender.replaceTrack(track);
-      } else {
-        pc.addTrack(track, localStream);
-      }
-    });
-  }, [localStream]);
 
   const sendSignal = useCallback((event: string, payload: Record<string, unknown>) => {
     const ch = channelRef.current;
@@ -113,6 +96,37 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
       isInitiatorRef.current = false;
     }
   }, [attachLocalTracks, sendSignal]);
+
+  // Keep latest localStream in a ref so handlers see fresh value
+  useEffect(() => {
+    localStreamRef.current = localStream;
+
+    const pc = pcRef.current;
+    if (!pc || !localStream) return;
+
+    const senders = pc.getSenders();
+    localStream.getTracks().forEach((track) => {
+      const sender = senders.find((s) => s.track?.kind === track.kind);
+      if (sender) {
+        sender.replaceTrack(track);
+      } else {
+        pc.addTrack(track, localStream);
+      }
+    });
+
+    const channel = channelRef.current;
+    if (!channel || hasNegotiatedRef.current || pc.connectionState === "connected") return;
+
+    const keys = Object.keys(channel.presenceState()).sort();
+    if (keys.length < 2) return;
+
+    const shouldInitiate = keys[0] === presenceKeyRef.current;
+    if (shouldInitiate) {
+      void startNegotiation();
+    } else {
+      sendSignal("request-offer", { from: presenceKeyRef.current });
+    }
+  }, [localStream, sendSignal, startNegotiation]);
 
   // Main effect: set up channel + peer connection (only depends on roomCode)
   useEffect(() => {
