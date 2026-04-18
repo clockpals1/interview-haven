@@ -26,9 +26,10 @@ export type ConnectionState = "disconnected" | "connecting" | "connected" | "fai
 interface UseWebRTCOptions {
   roomCode: string;
   localStream: MediaStream | null;
+  preferredVideoTrack?: MediaStreamTrack | null;
 }
 
-export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
+export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }: UseWebRTCOptions) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [participantCount, setParticipantCount] = useState(1);
@@ -41,6 +42,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
   const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const localStreamRef = useRef<MediaStream | null>(null);
   const subscribedRef = useRef(false);
+  const pendingOfferRef = useRef<{ from: string; sdp: RTCSessionDescriptionInit } | null>(null);
 
   const sendSignal = useCallback((event: string, payload: Record<string, unknown>) => {
     const ch = channelRef.current;
@@ -51,12 +53,36 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
   const attachLocalTracks = useCallback((pc: RTCPeerConnection) => {
     const stream = localStreamRef.current;
     if (!stream) return;
-    const existingKinds = new Set(pc.getSenders().map((s) => s.track?.kind).filter(Boolean));
-    stream.getTracks().forEach((track) => {
-      if (!existingKinds.has(track.kind)) {
-        pc.addTrack(track, stream);
+
+    const audioTrack = stream.getAudioTracks()[0] ?? null;
+    const videoTrack = preferredVideoTrack ?? stream.getVideoTracks()[0] ?? null;
+    const audioSender = pc.getSenders().find((sender) => sender.track?.kind === "audio");
+    const videoSender = pc.getSenders().find((sender) => sender.track?.kind === "video");
+
+    if (audioTrack) {
+      if (audioSender) {
+        void audioSender.replaceTrack(audioTrack);
+      } else {
+        pc.addTrack(audioTrack, stream);
       }
-    });
+    }
+
+    if (videoTrack) {
+      if (videoSender) {
+        void videoSender.replaceTrack(videoTrack);
+      } else {
+        pc.addTrack(videoTrack, stream);
+      }
+    }
+  }, [preferredVideoTrack]);
+
+  const hasLocalMedia = useCallback(() => {
+    const stream = localStreamRef.current;
+    return Boolean(stream?.getTracks().some((track) => track.readyState === "live"));
+  }, []);
+
+  const hasPublishedTracks = useCallback((pc: RTCPeerConnection) => {
+    return pc.getSenders().some((sender) => sender.track && sender.track.readyState === "live");
   }, []);
 
   const processCandidateQueue = useCallback(async () => {
@@ -74,7 +100,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
 
   const startNegotiation = useCallback(async () => {
     const pc = pcRef.current;
-    if (!pc || hasNegotiatedRef.current) return;
+    if (!pc || hasNegotiatedRef.current || !hasLocalMedia()) return;
     if (pc.signalingState !== "stable") return;
 
     hasNegotiatedRef.current = true;
@@ -95,38 +121,69 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
       hasNegotiatedRef.current = false;
       isInitiatorRef.current = false;
     }
-  }, [attachLocalTracks, sendSignal]);
+  }, [attachLocalTracks, hasLocalMedia, sendSignal]);
 
-  // Keep latest localStream in a ref so handlers see fresh value
+  const handleIncomingOffer = useCallback(async (payload: { from: string; sdp: RTCSessionDescriptionInit }) => {
+    const currentPc = pcRef.current;
+    if (!currentPc) return;
+    if (payload.from === presenceKeyRef.current) return;
+    if (isInitiatorRef.current) return;
+
+    if (!hasLocalMedia()) {
+      pendingOfferRef.current = payload;
+      return;
+    }
+
+    if (currentPc.signalingState !== "stable") return;
+
+    hasNegotiatedRef.current = true;
+    setConnectionState("connecting");
+
+    try {
+      attachLocalTracks(currentPc);
+      await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      await processCandidateQueue();
+      const answer = await currentPc.createAnswer();
+      await currentPc.setLocalDescription(answer);
+      sendSignal("answer", { sdp: answer, from: presenceKeyRef.current });
+      pendingOfferRef.current = null;
+    } catch (e) {
+      console.error("Failed to handle offer:", e);
+      hasNegotiatedRef.current = false;
+    }
+  }, [attachLocalTracks, hasLocalMedia, processCandidateQueue, sendSignal]);
+
+  // Keep latest local media in sync with the peer connection and only negotiate once tracks exist
   useEffect(() => {
     localStreamRef.current = localStream;
 
     const pc = pcRef.current;
     if (!pc || !localStream) return;
 
-    const senders = pc.getSenders();
-    localStream.getTracks().forEach((track) => {
-      const sender = senders.find((s) => s.track?.kind === track.kind);
-      if (sender) {
-        sender.replaceTrack(track);
-      } else {
-        pc.addTrack(track, localStream);
-      }
-    });
+    attachLocalTracks(pc);
+
+    if (pendingOfferRef.current && hasLocalMedia() && pc.signalingState === "stable") {
+      void handleIncomingOffer(pendingOfferRef.current);
+      return;
+    }
 
     const channel = channelRef.current;
-    if (!channel || hasNegotiatedRef.current || pc.connectionState === "connected") return;
+    if (!channel || !hasLocalMedia()) return;
 
     const keys = Object.keys(channel.presenceState()).sort();
     if (keys.length < 2) return;
 
     const shouldInitiate = keys[0] === presenceKeyRef.current;
+    const needsNegotiation = !hasNegotiatedRef.current || !hasPublishedTracks(pc);
+    if (!needsNegotiation) return;
+
+    hasNegotiatedRef.current = false;
     if (shouldInitiate) {
       void startNegotiation();
     } else {
       sendSignal("request-offer", { from: presenceKeyRef.current });
     }
-  }, [localStream, sendSignal, startNegotiation]);
+  }, [attachLocalTracks, handleIncomingOffer, hasLocalMedia, hasPublishedTracks, localStream, preferredVideoTrack, sendSignal, startNegotiation]);
 
   // Main effect: set up channel + peer connection (only depends on roomCode)
   useEffect(() => {
@@ -185,25 +242,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
 
     channel
       .on("broadcast", { event: "offer" }, async ({ payload }) => {
-        const currentPc = pcRef.current;
-        if (!currentPc) return;
-        if (payload.from === presenceKeyRef.current) return; // ignore own
-        if (isInitiatorRef.current) return; // initiator shouldn't accept offers
-        if (currentPc.signalingState !== "stable") return;
-
-        hasNegotiatedRef.current = true;
-        setConnectionState("connecting");
-
-        try {
-          attachLocalTracks(currentPc);
-          await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-          await processCandidateQueue();
-          const answer = await currentPc.createAnswer();
-          await currentPc.setLocalDescription(answer);
-          sendSignal("answer", { sdp: answer, from: presenceKeyRef.current });
-        } catch (e) {
-          console.error("Failed to handle offer:", e);
-        }
+        await handleIncomingOffer(payload as { from: string; sdp: RTCSessionDescriptionInit });
       })
       .on("broadcast", { event: "answer" }, async ({ payload }) => {
         const currentPc = pcRef.current;
@@ -235,6 +274,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
         }
       })
       .on("broadcast", { event: "request-offer" }, () => {
+        if (!hasLocalMedia()) return;
         // A new peer asks the existing one to (re)send an offer
         if (!isInitiatorRef.current && !hasNegotiatedRef.current) {
           // become initiator since we were here first
@@ -251,7 +291,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
         if (keys.length >= 2) {
           // Deterministic initiator: smallest key starts
           const shouldInitiate = keys[0] === presenceKeyRef.current;
-          if (shouldInitiate && !hasNegotiatedRef.current) {
+          if (shouldInitiate && !hasNegotiatedRef.current && hasLocalMedia()) {
             startNegotiation();
           }
         }
@@ -262,7 +302,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
         if (key !== presenceKeyRef.current) {
           const state = channel.presenceState();
           const keys = Object.keys(state).sort();
-          if (keys.length >= 2 && keys[0] === presenceKeyRef.current && !hasNegotiatedRef.current) {
+          if (keys.length >= 2 && keys[0] === presenceKeyRef.current && !hasNegotiatedRef.current && hasLocalMedia()) {
             startNegotiation();
           }
         }
@@ -290,6 +330,7 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
       hasNegotiatedRef.current = false;
       candidateQueueRef.current = [];
       subscribedRef.current = false;
+      pendingOfferRef.current = null;
       setRemoteStream(null);
       setConnectionState("disconnected");
       setParticipantCount(1);
