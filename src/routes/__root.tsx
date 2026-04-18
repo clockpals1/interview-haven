@@ -1,4 +1,5 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import appCss from "@/styles.css?url";
 
 function NotFoundComponent() {
   return (
@@ -37,6 +38,7 @@ export const Route = createRootRoute({
       { property: "og:description", content: "A calm, supportive interview platform with video, voice, and chat." },
       { name: "twitter:description", content: "A calm, supportive interview platform with video, voice, and chat." },
     ],
+    links: [{ rel: "stylesheet", href: appCss }],
   }),
   shellComponent: RootShell,
   component: RootComponent,
