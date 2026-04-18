@@ -12,6 +12,7 @@ const ICE_SERVERS: RTCConfiguration = {
         "turn:openrelay.metered.ca:80",
         "turn:openrelay.metered.ca:443",
         "turn:openrelay.metered.ca:443?transport=tcp",
+        "turns:openrelay.metered.ca:443?transport=tcp",
       ],
       username: "openrelayproject",
       credential: "openrelayproject",
@@ -57,7 +58,20 @@ export function useWebRTC({ roomCode, localStream }: UseWebRTCOptions) {
         pc.addTrack(track, localStream);
       }
     });
-  }, [localStream]);
+
+    const channel = channelRef.current;
+    if (!channel || hasNegotiatedRef.current || pc.connectionState === "connected") return;
+
+    const keys = Object.keys(channel.presenceState()).sort();
+    if (keys.length < 2) return;
+
+    const shouldInitiate = keys[0] === presenceKeyRef.current;
+    if (shouldInitiate) {
+      void startNegotiation();
+    } else {
+      sendSignal("request-offer", { from: presenceKeyRef.current });
+    }
+  }, [localStream, sendSignal, startNegotiation]);
 
   const sendSignal = useCallback((event: string, payload: Record<string, unknown>) => {
     const ch = channelRef.current;
