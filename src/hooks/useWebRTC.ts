@@ -146,8 +146,8 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, p
     setConnectionState("connecting");
 
     try {
-      attachLocalTracks(currentPc);
       await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      attachLocalTracks(currentPc);
       await processCandidateQueue();
       const answer = await currentPc.createAnswer();
       await currentPc.setLocalDescription(answer);
