@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-// Public STUN + free TURN relay (OpenRelay by Metered) for NAT/firewall traversal
 const ICE_SERVERS: RTCConfiguration = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -21,6 +20,8 @@ const ICE_SERVERS: RTCConfiguration = {
   iceCandidatePoolSize: 10,
 };
 
+type SignalPayload = Record<string, unknown>;
+
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "failed";
 export type ParticipantRole = "interviewer" | "candidate";
 
@@ -31,25 +32,49 @@ interface UseWebRTCOptions {
   participantRole?: ParticipantRole;
 }
 
-export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, participantRole = "candidate" }: UseWebRTCOptions) {
+export function useWebRTC({
+  roomCode,
+  localStream,
+  preferredVideoTrack = null,
+  participantRole = "candidate",
+}: UseWebRTCOptions) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [participantCount, setParticipantCount] = useState(1);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const presenceKeyRef = useRef<string>("");
-  const isInitiatorRef = useRef(false);
-  const hasNegotiatedRef = useRef(false);
-  const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const presenceKeyRef = useRef("");
   const localStreamRef = useRef<MediaStream | null>(null);
   const subscribedRef = useRef(false);
+  const isInitiatorRef = useRef(false);
+  const hasNegotiatedRef = useRef(false);
   const pendingOfferRef = useRef<{ from: string; sdp: RTCSessionDescriptionInit } | null>(null);
+  const candidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
 
-  const sendSignal = useCallback((event: string, payload: Record<string, unknown>) => {
-    const ch = channelRef.current;
-    if (!ch) return;
-    ch.send({ type: "broadcast", event, payload });
+  const hasLocalMedia = useCallback(() => {
+    const stream = localStreamRef.current;
+    return Boolean(stream?.getTracks().some((track) => track.readyState === "live"));
+  }, []);
+
+  const sendSignal = useCallback(async (event: string, payload: SignalPayload) => {
+    const channel = channelRef.current;
+    if (!channel || !subscribedRef.current) {
+      console.warn(`[WebRTC] Skipped ${event} broadcast before subscribe`);
+      return false;
+    }
+
+    try {
+      const result = await channel.send({ type: "broadcast", event, payload });
+      if (result !== "ok") {
+        console.warn(`[WebRTC] ${event} broadcast failed:`, result);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error(`[WebRTC] ${event} broadcast error:`, error);
+      return false;
+    }
   }, []);
 
   const attachLocalTracks = useCallback((pc: RTCPeerConnection) => {
@@ -78,88 +103,128 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, p
     }
   }, [preferredVideoTrack]);
 
-  const hasLocalMedia = useCallback(() => {
-    const stream = localStreamRef.current;
-    return Boolean(stream?.getTracks().some((track) => track.readyState === "live"));
-  }, []);
-
-  const hasPublishedTracks = useCallback((pc: RTCPeerConnection) => {
-    return pc.getSenders().some((sender) => sender.track && sender.track.readyState === "live");
-  }, []);
-
-  const shouldInitiateConnection = useCallback((presenceKeys: string[]) => {
-    return participantRole === "interviewer" && presenceKeys.includes(presenceKeyRef.current) && presenceKeys.length >= 2;
-  }, [participantRole]);
-
   const processCandidateQueue = useCallback(async () => {
     const pc = pcRef.current;
     if (!pc || !pc.remoteDescription) return;
+
     while (candidateQueueRef.current.length > 0) {
-      const candidate = candidateQueueRef.current.shift()!;
+      const candidate = candidateQueueRef.current.shift();
+      if (!candidate) continue;
+
       try {
         await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (e) {
-        console.warn("Failed to add ICE candidate:", e);
+      } catch (error) {
+        console.warn("[WebRTC] Failed to add ICE candidate:", error);
       }
     }
   }, []);
 
   const startNegotiation = useCallback(async () => {
     const pc = pcRef.current;
-    if (!pc || hasNegotiatedRef.current || !hasLocalMedia()) return;
+    if (!pc || !subscribedRef.current || !hasLocalMedia() || hasNegotiatedRef.current) return;
     if (pc.signalingState !== "stable") return;
 
     hasNegotiatedRef.current = true;
     isInitiatorRef.current = true;
     setConnectionState("connecting");
-
     attachLocalTracks(pc);
 
     try {
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true,
-      });
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
-      sendSignal("offer", { sdp: offer, from: presenceKeyRef.current });
-    } catch (e) {
-      console.error("Failed to create offer:", e);
+
+      const sent = await sendSignal("offer", {
+        from: presenceKeyRef.current,
+        sdp: offer,
+        role: participantRole,
+      });
+
+      if (!sent) {
+        throw new Error("Offer was not delivered");
+      }
+
+      console.info("[WebRTC] Offer sent");
+    } catch (error) {
+      console.error("[WebRTC] Failed to create offer:", error);
       hasNegotiatedRef.current = false;
       isInitiatorRef.current = false;
+      setConnectionState("disconnected");
     }
-  }, [attachLocalTracks, hasLocalMedia, sendSignal]);
+  }, [attachLocalTracks, hasLocalMedia, participantRole, sendSignal]);
 
   const handleIncomingOffer = useCallback(async (payload: { from: string; sdp: RTCSessionDescriptionInit }) => {
-    const currentPc = pcRef.current;
-    if (!currentPc) return;
-    if (payload.from === presenceKeyRef.current) return;
-    if (isInitiatorRef.current) return;
+    const pc = pcRef.current;
+    if (!pc) return;
+    if (payload.from === presenceKeyRef.current || isInitiatorRef.current) return;
 
     if (!hasLocalMedia()) {
       pendingOfferRef.current = payload;
+      console.info("[WebRTC] Queued incoming offer until local media is ready");
       return;
     }
 
-    if (currentPc.signalingState !== "stable") return;
+    if (pc.signalingState !== "stable") {
+      console.warn("[WebRTC] Ignored offer because signaling state is not stable:", pc.signalingState);
+      return;
+    }
 
     hasNegotiatedRef.current = true;
     setConnectionState("connecting");
 
     try {
-      await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-      attachLocalTracks(currentPc);
+      await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+      attachLocalTracks(pc);
       await processCandidateQueue();
-      const answer = await currentPc.createAnswer();
-      await currentPc.setLocalDescription(answer);
-      sendSignal("answer", { sdp: answer, from: presenceKeyRef.current });
-      pendingOfferRef.current = null;
-    } catch (e) {
-      console.error("Failed to handle offer:", e);
-      hasNegotiatedRef.current = false;
-    }
-  }, [attachLocalTracks, hasLocalMedia, processCandidateQueue, sendSignal]);
 
-  // Keep latest local media in sync with the peer connection and only negotiate once tracks exist
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      const sent = await sendSignal("answer", {
+        from: presenceKeyRef.current,
+        sdp: answer,
+        role: participantRole,
+      });
+
+      if (!sent) {
+        throw new Error("Answer was not delivered");
+      }
+
+      pendingOfferRef.current = null;
+      console.info("[WebRTC] Answer sent");
+    } catch (error) {
+      console.error("[WebRTC] Failed to handle offer:", error);
+      hasNegotiatedRef.current = false;
+      setConnectionState("failed");
+    }
+  }, [attachLocalTracks, hasLocalMedia, participantRole, processCandidateQueue, sendSignal]);
+
+  const maybeStartConnection = useCallback(async () => {
+    const pc = pcRef.current;
+    const channel = channelRef.current;
+    if (!pc || !channel || !subscribedRef.current || !hasLocalMedia()) return;
+
+    const keys = Object.keys(channel.presenceState());
+    setParticipantCount(keys.length);
+
+    if (keys.length < 2) return;
+
+    if (pendingOfferRef.current && pc.signalingState === "stable") {
+      await handleIncomingOffer(pendingOfferRef.current);
+      return;
+    }
+
+    if (participantRole === "interviewer") {
+      await startNegotiation();
+      return;
+    }
+
+    await sendSignal("ready", {
+      from: presenceKeyRef.current,
+      role: participantRole,
+    });
+    console.info("[WebRTC] Candidate ready signal sent");
+  }, [handleIncomingOffer, hasLocalMedia, participantRole, sendSignal, startNegotiation]);
+
   useEffect(() => {
     localStreamRef.current = localStream;
 
@@ -167,56 +232,37 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, p
     if (!pc || !localStream) return;
 
     attachLocalTracks(pc);
+    void maybeStartConnection();
+  }, [attachLocalTracks, localStream, maybeStartConnection, preferredVideoTrack]);
 
-    if (pendingOfferRef.current && hasLocalMedia() && pc.signalingState === "stable") {
-      void handleIncomingOffer(pendingOfferRef.current);
-      return;
-    }
-
-    const channel = channelRef.current;
-    if (!channel || !hasLocalMedia()) return;
-
-    const keys = Object.keys(channel.presenceState());
-    if (keys.length < 2) return;
-
-    const shouldInitiate = shouldInitiateConnection(keys);
-    const needsNegotiation = !hasNegotiatedRef.current || !hasPublishedTracks(pc);
-    if (!needsNegotiation) return;
-
-    hasNegotiatedRef.current = false;
-    if (shouldInitiate) {
-      void startNegotiation();
-    } else if (participantRole === "candidate") {
-      sendSignal("request-offer", { from: presenceKeyRef.current });
-    }
-  }, [attachLocalTracks, handleIncomingOffer, hasLocalMedia, hasPublishedTracks, localStream, participantRole, preferredVideoTrack, sendSignal, shouldInitiateConnection, startNegotiation]);
-
-  // Main effect: set up channel + peer connection (only depends on roomCode)
   useEffect(() => {
     if (!roomCode) return;
 
-    // Reset state
     presenceKeyRef.current = crypto.randomUUID();
+    subscribedRef.current = false;
     isInitiatorRef.current = false;
     hasNegotiatedRef.current = false;
+    pendingOfferRef.current = null;
     candidateQueueRef.current = [];
-    subscribedRef.current = false;
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pcRef.current = pc;
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
-        sendSignal("ice-candidate", {
-          candidate: event.candidate.toJSON(),
-          from: presenceKeyRef.current,
-        });
-      }
+      if (!event.candidate) return;
+
+      void sendSignal("ice-candidate", {
+        from: presenceKeyRef.current,
+        candidate: event.candidate.toJSON(),
+      });
     };
 
-    pc.ontrack = (event) => {
-      const [stream] = event.streams;
-      if (stream) setRemoteStream(stream);
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "failed") {
+        console.warn("[WebRTC] ICE connection failed");
+        hasNegotiatedRef.current = false;
+        setConnectionState("failed");
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -229,89 +275,98 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, p
           break;
         case "disconnected":
         case "closed":
+          hasNegotiatedRef.current = false;
           setConnectionState("disconnected");
           setRemoteStream(null);
           break;
         case "failed":
+          hasNegotiatedRef.current = false;
           setConnectionState("failed");
           break;
       }
     };
 
-    // Attach any tracks we already have
+    pc.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (stream) {
+        console.info("[WebRTC] Remote track received");
+        setRemoteStream(stream);
+      }
+    };
+
     attachLocalTracks(pc);
 
     const channel = supabase.channel(`interview-${roomCode}`, {
-      config: { presence: { key: presenceKeyRef.current } },
+      config: {
+        presence: { key: presenceKeyRef.current },
+        broadcast: { ack: true, self: false },
+      },
     });
     channelRef.current = channel;
 
     channel
+      .on("broadcast", { event: "ready" }, async ({ payload }) => {
+        const signal = payload as { from: string; role?: ParticipantRole };
+        if (signal.from === presenceKeyRef.current) return;
+        if (participantRole !== "interviewer") return;
+        await startNegotiation();
+      })
       .on("broadcast", { event: "offer" }, async ({ payload }) => {
         await handleIncomingOffer(payload as { from: string; sdp: RTCSessionDescriptionInit });
       })
       .on("broadcast", { event: "answer" }, async ({ payload }) => {
+        const signal = payload as { from: string; sdp: RTCSessionDescriptionInit };
         const currentPc = pcRef.current;
         if (!currentPc) return;
-        if (payload.from === presenceKeyRef.current) return;
-        if (!isInitiatorRef.current) return;
+        if (signal.from === presenceKeyRef.current || !isInitiatorRef.current) return;
         if (currentPc.signalingState !== "have-local-offer") return;
 
         try {
-          await currentPc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          await currentPc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
           await processCandidateQueue();
-        } catch (e) {
-          console.error("Failed to handle answer:", e);
+          console.info("[WebRTC] Answer received");
+        } catch (error) {
+          console.error("[WebRTC] Failed to handle answer:", error);
+          hasNegotiatedRef.current = false;
+          setConnectionState("failed");
         }
       })
       .on("broadcast", { event: "ice-candidate" }, async ({ payload }) => {
+        const signal = payload as { from: string; candidate: RTCIceCandidateInit };
         const currentPc = pcRef.current;
-        if (!currentPc) return;
-        if (payload.from === presenceKeyRef.current) return;
+        if (!currentPc || signal.from === presenceKeyRef.current) return;
 
         if (currentPc.remoteDescription) {
           try {
-            await currentPc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-          } catch (e) {
-            console.warn("Failed to add ICE candidate:", e);
+            await currentPc.addIceCandidate(new RTCIceCandidate(signal.candidate));
+          } catch (error) {
+            console.warn("[WebRTC] Failed to add ICE candidate:", error);
           }
-        } else {
-          candidateQueueRef.current.push(payload.candidate);
+          return;
         }
-      })
-      .on("broadcast", { event: "request-offer" }, () => {
-        if (participantRole !== "interviewer" || !hasLocalMedia()) return;
-        hasNegotiatedRef.current = false;
-        void startNegotiation();
+
+        candidateQueueRef.current.push(signal.candidate);
       })
       .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        const keys = Object.keys(state);
-        setParticipantCount(keys.length);
-
-        if (shouldInitiateConnection(keys) && !hasNegotiatedRef.current && hasLocalMedia()) {
-          void startNegotiation();
-        }
+        setParticipantCount(Object.keys(channel.presenceState()).length);
+        void maybeStartConnection();
       })
-      .on("presence", { event: "join" }, ({ key }) => {
-        if (key !== presenceKeyRef.current) {
-          const state = channel.presenceState();
-          const keys = Object.keys(state);
-          if (shouldInitiateConnection(keys) && !hasNegotiatedRef.current && hasLocalMedia()) {
-            void startNegotiation();
-          }
-        }
+      .on("presence", { event: "join" }, () => {
+        setParticipantCount(Object.keys(channel.presenceState()).length);
+        void maybeStartConnection();
       })
       .subscribe(async (status) => {
-        if (status === "SUBSCRIBED" && !subscribedRef.current) {
-          subscribedRef.current = true;
-          await channel.track({ joined_at: new Date().toISOString() });
-        }
+        if (status !== "SUBSCRIBED" || subscribedRef.current) return;
+
+        subscribedRef.current = true;
+        await channel.track({ joined_at: new Date().toISOString(), role: participantRole });
+        console.info("[WebRTC] Realtime room subscribed");
+        await maybeStartConnection();
       });
 
     return () => {
       try {
-        channel.untrack();
+        void channel.untrack();
       } catch {}
       try {
         supabase.removeChannel(channel);
@@ -319,19 +374,19 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, p
       try {
         pc.close();
       } catch {}
+
       pcRef.current = null;
       channelRef.current = null;
+      subscribedRef.current = false;
       isInitiatorRef.current = false;
       hasNegotiatedRef.current = false;
-      candidateQueueRef.current = [];
-      subscribedRef.current = false;
       pendingOfferRef.current = null;
+      candidateQueueRef.current = [];
       setRemoteStream(null);
       setConnectionState("disconnected");
       setParticipantCount(1);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roomCode]);
+  }, [attachLocalTracks, handleIncomingOffer, maybeStartConnection, participantRole, processCandidateQueue, roomCode, sendSignal, startNegotiation]);
 
   return { remoteStream, connectionState, participantCount };
 }
