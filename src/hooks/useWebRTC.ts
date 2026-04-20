@@ -22,14 +22,16 @@ const ICE_SERVERS: RTCConfiguration = {
 };
 
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "failed";
+export type ParticipantRole = "interviewer" | "candidate";
 
 interface UseWebRTCOptions {
   roomCode: string;
   localStream: MediaStream | null;
   preferredVideoTrack?: MediaStreamTrack | null;
+  participantRole?: ParticipantRole;
 }
 
-export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }: UseWebRTCOptions) {
+export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null, participantRole = "candidate" }: UseWebRTCOptions) {
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("disconnected");
   const [participantCount, setParticipantCount] = useState(1);
@@ -84,6 +86,10 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }:
   const hasPublishedTracks = useCallback((pc: RTCPeerConnection) => {
     return pc.getSenders().some((sender) => sender.track && sender.track.readyState === "live");
   }, []);
+
+  const shouldInitiateConnection = useCallback((presenceKeys: string[]) => {
+    return participantRole === "interviewer" && presenceKeys.includes(presenceKeyRef.current) && presenceKeys.length >= 2;
+  }, [participantRole]);
 
   const processCandidateQueue = useCallback(async () => {
     const pc = pcRef.current;
@@ -170,20 +176,20 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }:
     const channel = channelRef.current;
     if (!channel || !hasLocalMedia()) return;
 
-    const keys = Object.keys(channel.presenceState()).sort();
+    const keys = Object.keys(channel.presenceState());
     if (keys.length < 2) return;
 
-    const shouldInitiate = keys[0] === presenceKeyRef.current;
+    const shouldInitiate = shouldInitiateConnection(keys);
     const needsNegotiation = !hasNegotiatedRef.current || !hasPublishedTracks(pc);
     if (!needsNegotiation) return;
 
     hasNegotiatedRef.current = false;
     if (shouldInitiate) {
       void startNegotiation();
-    } else {
+    } else if (participantRole === "candidate") {
       sendSignal("request-offer", { from: presenceKeyRef.current });
     }
-  }, [attachLocalTracks, handleIncomingOffer, hasLocalMedia, hasPublishedTracks, localStream, preferredVideoTrack, sendSignal, startNegotiation]);
+  }, [attachLocalTracks, handleIncomingOffer, hasLocalMedia, hasPublishedTracks, localStream, participantRole, preferredVideoTrack, sendSignal, shouldInitiateConnection, startNegotiation]);
 
   // Main effect: set up channel + peer connection (only depends on roomCode)
   useEffect(() => {
@@ -274,36 +280,25 @@ export function useWebRTC({ roomCode, localStream, preferredVideoTrack = null }:
         }
       })
       .on("broadcast", { event: "request-offer" }, () => {
-        if (!hasLocalMedia()) return;
-        // A new peer asks the existing one to (re)send an offer
-        if (!isInitiatorRef.current && !hasNegotiatedRef.current) {
-          // become initiator since we were here first
-          isInitiatorRef.current = true;
-        }
+        if (participantRole !== "interviewer" || !hasLocalMedia()) return;
         hasNegotiatedRef.current = false;
-        startNegotiation();
+        void startNegotiation();
       })
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
-        const keys = Object.keys(state).sort();
+        const keys = Object.keys(state);
         setParticipantCount(keys.length);
 
-        if (keys.length >= 2) {
-          // Deterministic initiator: smallest key starts
-          const shouldInitiate = keys[0] === presenceKeyRef.current;
-          if (shouldInitiate && !hasNegotiatedRef.current && hasLocalMedia()) {
-            startNegotiation();
-          }
+        if (shouldInitiateConnection(keys) && !hasNegotiatedRef.current && hasLocalMedia()) {
+          void startNegotiation();
         }
       })
       .on("presence", { event: "join" }, ({ key }) => {
-        // When someone new joins after us, ask them to trigger negotiation
-        // (only relevant if we're the initiator/first one)
         if (key !== presenceKeyRef.current) {
           const state = channel.presenceState();
-          const keys = Object.keys(state).sort();
-          if (keys.length >= 2 && keys[0] === presenceKeyRef.current && !hasNegotiatedRef.current && hasLocalMedia()) {
-            startNegotiation();
+          const keys = Object.keys(state);
+          if (shouldInitiateConnection(keys) && !hasNegotiatedRef.current && hasLocalMedia()) {
+            void startNegotiation();
           }
         }
       })

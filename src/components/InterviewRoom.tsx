@@ -14,9 +14,10 @@ import { useScreenShare } from "@/hooks/useScreenShare";
 
 interface InterviewRoomProps {
   code?: string;
+  role?: "interviewer" | "candidate";
 }
 
-export function InterviewRoom({ code }: InterviewRoomProps) {
+export function InterviewRoom({ code, role = "candidate" }: InterviewRoomProps) {
   const {
     localStream, videoEnabled, audioEnabled, error: mediaError,
     startMedia, stopMedia, toggleVideo, toggleAudio,
@@ -27,6 +28,7 @@ export function InterviewRoom({ code }: InterviewRoomProps) {
     roomCode: code || "demo",
     localStream,
     preferredVideoTrack: screenStream?.getVideoTracks()[0] ?? null,
+    participantRole: role,
   });
   const screenVideoRef = useRef<HTMLVideoElement>(null);
   const [chatOpen, setChatOpen] = useState(false);
