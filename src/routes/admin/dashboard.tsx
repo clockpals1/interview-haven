@@ -201,7 +201,7 @@ function AdminDashboard() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Button variant="accent" size="sm" className="flex-1 sm:flex-none" onClick={() => navigate({ to: "/interview", search: { code: interview.confirmation_code } })}>
+                    <Button variant="accent" size="sm" className="flex-1 sm:flex-none" onClick={() => navigate({ to: "/interview", search: { code: interview.confirmation_code, role: "interviewer" } })}>
                       Join
                     </Button>
                     <Button variant="ghost" size="icon" className="h-9 w-9 text-destructive hover:text-destructive" onClick={() => handleDelete(interview.id)}>

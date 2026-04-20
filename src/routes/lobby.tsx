@@ -134,7 +134,7 @@ function LobbyPage() {
 
   const joinInterview = () => {
     stopStream();
-    navigate({ to: "/interview", search: { code: code || "" } });
+    navigate({ to: "/interview", search: { code: code || "", role: "candidate" } });
   };
 
   return (
